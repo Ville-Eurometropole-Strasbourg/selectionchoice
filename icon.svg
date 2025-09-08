@@ -4,8 +4,8 @@
    width="24"
    version="1.1"
    id="svg20"
-   sodipodi:docname="mActionSelect.svg"
-   inkscape:version="1.2.1 (9c6d41e410, 2022-07-14)"
+   sodipodi:docname="icon.svg"
+   inkscape:version="1.4.2 (ebf0e940d0, 2025-05-08)"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
@@ -22,15 +22,15 @@
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
      showgrid="false"
-     inkscape:zoom="35.291667"
-     inkscape:cx="8.9964581"
-     inkscape:cy="9.7473436"
-     inkscape:window-width="1920"
-     inkscape:window-height="1027"
-     inkscape:window-x="-8"
-     inkscape:window-y="-8"
+     inkscape:zoom="24.954977"
+     inkscape:cx="-2.8651599"
+     inkscape:cy="12.001614"
+     inkscape:window-width="2560"
+     inkscape:window-height="1368"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
      inkscape:window-maximized="1"
-     inkscape:current-layer="svg20" />
+     inkscape:current-layer="g152" />
   <g
      stroke-width="1.07692"
      id="g152"
@@ -38,16 +38,16 @@
     <path
        d="M -7.7797755,40.085059 H 11.143302 v 4.923077 H -7.7797755 Z"
        id="path150"
-       style="fill:#ffff00" />
+       style="fill:#fce94f;fill-opacity:1" />
     <path
        d="M -7.7797755,26.085059 H 11.143302 v 4.923077 H -7.7797755 Z"
        id="path148"
-       style="fill:#ffff00" />
+       style="fill:#fce94f;fill-opacity:1" />
     <path
-       d="M -7.8220302,33.042805 H 11.185556 v 5.007586 H -7.8220302 Z"
+       d="M -7.7771122,33.042805 H 11.230474 v 5.007586 H -7.7771122 Z"
        stroke-width="0.992414"
        id="path146"
-       style="fill:#ffff00" />
+       style="fill:#fce94f;fill-opacity:1" />
   </g>
   <path
      d="M 23.495277,14.579329 9.4952774,2.4433294 11.852277,20.033329 l 4.022,-3.44 3.92,6.85 2.648,-1.346 -4.06,-6.83 z"
