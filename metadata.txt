@@ -1,0 +1,9 @@
+[general]
+name=selectionchoice
+description=Selection choice
+about=This plugin add a layer choice to the selection tool when selecting on the canvas
+version=1.0
+qgisMinimumVersion=3.0
+author=Clément Zitouni, Eurométropole de Strasbourg
+email=cazitouni@metrotopic.net
+repository=https://github.com/Ville-Eurometropole-Strasbourg/selectionchoice
