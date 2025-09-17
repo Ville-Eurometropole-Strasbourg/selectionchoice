@@ -79,10 +79,10 @@ class LayerChoiceSelectTool(QgsMapTool):
                 if layer_tree and layer_tree.isVisible():
                     selection_geom = self.create_selection_geometry(
                                         self.click_point, layer
-                                     )
+                                    )
                     request = QgsFeatureRequest().setFilterRect(
                                 selection_geom.boundingBox()
-                              )
+                            )
                     matched_display_values = []
                     display_field = layer.displayField()
                     for feature in layer.getFeatures(request):
@@ -98,6 +98,11 @@ class LayerChoiceSelectTool(QgsMapTool):
                         )
         if not vector_layers_with_features:
             self.canvas.setCursor(Qt.CrossCursor)
+            return
+        if len(vector_layers_with_features) == 1:
+            layer = vector_layers_with_features[0][0]
+            self.canvas.setCursor(Qt.CrossCursor)
+            self.layer_chosen(layer)
             return
         menu = QMenu()
         menu.setTitle("Choose Layer")
@@ -119,6 +124,7 @@ class LayerChoiceSelectTool(QgsMapTool):
         self.selected_layer = layer
         selection_geom = self.create_selection_geometry(self.click_point, layer)
         self.select_features_with_geometry(selection_geom, self.click_event)
+        iface.setActiveLayer(layer)
         self.reset_tool()
 
     def select_features_with_geometry(self, selection_geom, event):
