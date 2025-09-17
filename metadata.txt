@@ -7,3 +7,5 @@ qgisMinimumVersion=3.0
 author=Clément Zitouni, Eurométropole de Strasbourg
 email=cazitouni@metrotopic.net
 repository=https://github.com/Ville-Eurometropole-Strasbourg/selectionchoice
+tracker=https://github.com/Ville-Eurometropole-Strasbourg/selectionchoice/issues
+homepage=https://github.com/Ville-Eurometropole-Strasbourg/selectionchoice
