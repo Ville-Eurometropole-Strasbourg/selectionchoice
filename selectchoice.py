@@ -3,10 +3,13 @@ import os
 
 from qgis.core import (
     QgsCoordinateTransform,
+    QgsCsException,
+    QgsExpressionContext,
+    QgsExpressionContextUtils,
     QgsFeatureRequest,
-    QgsGeometry,
-    QgsPointXY,
     QgsProject,
+    QgsRectangle,
+    QgsRenderContext,
     QgsVectorLayer,
 )
 from qgis.gui import QgsMapTool
@@ -15,158 +18,128 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QMenu
 from qgis.utils import iface
 
+TOLERANCE_PX = 5
+PREVIEW_COUNT = 5
 
 class LayerChoiceSelectTool(QgsMapTool):
     def __init__(self, canvas):
         super().__init__(canvas)
         self.canvas = canvas
-        self.selected_layer = None
-        self.click_event = None
         self.click_point = None
+        self.modifiers = Qt.NoModifier
+        self.matches = {}
 
     def canvasPressEvent(self, event):
-        self.click_event = event
         self.click_point = self.toMapCoordinates(event.pos())
-        self.show_layer_choice_menu(event)
+        self.modifiers = event.modifiers()
+        self.matches = {}
+        self.canvas.setCursor(Qt.WaitCursor)
+        try:
+            self.show_layer_choice_menu(event)
+        finally:
+            self.canvas.setCursor(Qt.CrossCursor)
 
-    def transform_point_to_layer_crs(self, point, target_layer):
+    def click_rect(self, layer):
+        r = self.canvas.mapUnitsPerPixel() * TOLERANCE_PX
+        p = self.click_point
+        rect = QgsRectangle(p.x() - r, p.y() - r, p.x() + r, p.y() + r)
         canvas_crs = self.canvas.mapSettings().destinationCrs()
-        layer_crs = target_layer.crs()
-        if canvas_crs != layer_crs:
+        if canvas_crs != layer.crs():
             transform = QgsCoordinateTransform(
-                canvas_crs, layer_crs, QgsProject.instance()
+                canvas_crs, layer.crs(), QgsProject.instance()
             )
             try:
-                transformed_point = transform.transform(point)
-                return transformed_point
-            except Exception as e:
-                iface.messageBar().pushMessage(
-                    "Layer Choice Select",
-                    f"Error transforming coordinates: {e}",
-                    level=2,
-                    duration=5,
-                )
-                return point
-        return point
+                return transform.transformBoundingBox(rect)
+            except QgsCsException:
+                return None
+        return rect
 
-    def create_selection_geometry(self, center_point, layer):
-        transformed_point = self.transform_point_to_layer_crs(center_point, layer)
-        canvas_crs = self.canvas.mapSettings().destinationCrs()
-        layer_crs = layer.crs()
-        buffer_size = self.canvas.mapUnitsPerPixel() * 5
-        if canvas_crs != layer_crs:
-            canvas_point = center_point
-            test_point = QgsPointXY(canvas_point.x() + buffer_size, canvas_point.y())
-            transform = QgsCoordinateTransform(
-                canvas_crs, layer_crs, QgsProject.instance()
+    def find_matches(self, layer):
+        rect = self.click_rect(layer)
+        if rect is None:
+            return None
+        request = QgsFeatureRequest().setFilterRect(rect)
+        request.setFlags(QgsFeatureRequest.ExactIntersect)
+        idx = layer.fields().lookupField(layer.displayField())
+        ids, preview = [], []
+
+        def add(feature):
+            ids.append(feature.id())
+            if len(preview) < PREVIEW_COUNT:
+                preview.append(str(feature[idx]) if idx >= 0 else str(feature.id()))
+        renderer = layer.renderer()
+        if renderer is None or renderer.type() == "singleSymbol":
+            for feature in layer.getFeatures(request):
+                add(feature)
+        else:
+            renderer = renderer.clone()  # ne pas toucher au renderer actif
+            context = QgsRenderContext.fromMapSettings(self.canvas.mapSettings())
+            context.setRendererScale(self.canvas.scale())
+            expression_context = QgsExpressionContext()
+            expression_context.appendScopes(
+                QgsExpressionContextUtils.globalProjectLayerScopes(layer)
             )
+            context.setExpressionContext(expression_context)
+            renderer.startRender(context, layer.fields())
             try:
-                transformed_center = transform.transform(canvas_point)
-                transformed_test = transform.transform(test_point)
-                buffer_size = transformed_center.distance(transformed_test)
-            except Exception:
-                pass
-        point_geom = QgsGeometry.fromPointXY(transformed_point)
-        buffer_geom = point_geom.buffer(buffer_size, 8)
-        return buffer_geom
+                for feature in layer.getFeatures(request):
+                    expression_context.setFeature(feature)
+                    if renderer.symbolsForFeature(
+                        feature, context
+                    ) and renderer.willRenderFeature(feature, context):
+                        add(feature)
+            finally:
+                renderer.stopRender(context)
+        return (ids, preview, len(ids)) if ids else None
+
+    def candidate_layers(self):
+        scale = self.canvas.scale()
+        return [
+            layer
+            for layer in self.canvas.layers()
+            if isinstance(layer, QgsVectorLayer)
+            and layer.isSpatial()
+            and layer.isInScaleRange(scale)
+        ]
 
     def show_layer_choice_menu(self, event):
-        self.canvas.setCursor(Qt.WaitCursor)
-        vector_layers_with_features = []
-        for layer in QgsProject.instance().mapLayers().values():
-            if isinstance(layer, QgsVectorLayer):
-                layer_tree = QgsProject.instance().layerTreeRoot().findLayer(layer.id())
-                if layer_tree and layer_tree.isVisible():
-                    selection_geom = self.create_selection_geometry(
-                                        self.click_point, layer
-                                    )
-                    request = QgsFeatureRequest().setFilterRect(
-                                selection_geom.boundingBox()
-                            )
-                    matched_display_values = []
-                    display_field = layer.displayField()
-                    for feature in layer.getFeatures(request):
-                        if feature.geometry().intersects(selection_geom):
-                            if display_field in feature.fields().names():
-                                attr_val = feature[display_field]
-                            else:
-                                attr_val = feature.id()
-                            matched_display_values.append(str(attr_val))
-                    if matched_display_values:
-                        vector_layers_with_features.append(
-                            (layer, matched_display_values)
-                        )
-        if not vector_layers_with_features:
-            self.canvas.setCursor(Qt.CrossCursor)
+        for layer in self.candidate_layers():
+            result = self.find_matches(layer)
+            if result:
+                self.matches[layer] = result
+        if not self.matches:
             return
-        if len(vector_layers_with_features) == 1:
-            layer = vector_layers_with_features[0][0]
-            self.canvas.setCursor(Qt.CrossCursor)
-            self.layer_chosen(layer)
+        if len(self.matches) == 1:
+            self.layer_chosen(next(iter(self.matches)))
             return
         menu = QMenu()
         menu.setTitle("Choose Layer")
-        for layer, display_values in vector_layers_with_features:
-            preview = ", ".join(display_values[:5])
-            if len(display_values) > 5:
-                preview += ", …"
-            action_text = f"{layer.name()} ({preview})"
-            action = menu.addAction(action_text)
-            action.setData(layer)
-            action.triggered.connect(
-                lambda _, layer=layer: self.layer_chosen(layer)
-            )
-        global_pos = self.canvas.mapToGlobal(event.pos())
+        for layer, (_, preview, total) in self.matches.items():
+            text = ", ".join(preview) + (", …" if total > len(preview) else "")
+            action = menu.addAction(f"{layer.name()} ({text})")
+            action.triggered.connect(lambda _, layer=layer: self.layer_chosen(layer))
         self.canvas.setCursor(Qt.CrossCursor)
-        menu.exec_(global_pos)
+        menu.exec_(self.canvas.mapToGlobal(event.pos()))
 
     def layer_chosen(self, layer):
-        self.selected_layer = layer
-        selection_geom = self.create_selection_geometry(self.click_point, layer)
-        self.select_features_with_geometry(selection_geom, self.click_event)
+        ids = set(self.matches[layer][0])
+        current = set(layer.selectedFeatureIds())
+        mods = self.modifiers
+        if mods & Qt.ControlModifier:
+            new = current ^ ids
+        elif mods & Qt.ShiftModifier:
+            new = current - ids
+        else:
+            new = ids
+        layer.selectByIds(list(new))
         iface.setActiveLayer(layer)
-        self.reset_tool()
-
-    def select_features_with_geometry(self, selection_geom, event):
-        if not isinstance(self.selected_layer, QgsVectorLayer):
-            return
-        request = QgsFeatureRequest().setFilterRect(selection_geom.boundingBox())
-        selected_features = []
-        for feature in self.selected_layer.getFeatures(request):
-            if feature.geometry().intersects(selection_geom):
-                selected_features.append(feature)
-        feature_ids = [f.id() for f in selected_features]
-        modifiers = event.modifiers()
-        if feature_ids:
-            existing_ids = self.selected_layer.selectedFeatureIds()
-            if modifiers & Qt.ControlModifier:
-                new_selection = set(existing_ids)
-                for fid in feature_ids:
-                    if fid in new_selection:
-                        new_selection.remove(fid)
-                    else:
-                        new_selection.add(fid)
-                self.selected_layer.selectByIds(list(new_selection))
-            elif modifiers & Qt.ShiftModifier:
-                new_selection = set(existing_ids) - set(feature_ids)
-                self.selected_layer.selectByIds(list(new_selection))
-            else:
-                self.selected_layer.selectByIds(feature_ids)
-        elif not (modifiers & (Qt.ControlModifier | Qt.ShiftModifier)):
-                self.selected_layer.removeSelection()
-
-
-    def reset_tool(self):
-        self.selected_layer = None
-        self.click_event = None
-        self.click_point = None
 
     def activate(self):
         super().activate()
         self.canvas.setCursor(Qt.CrossCursor)
 
     def deactivate(self):
-        self.reset_tool()
+        self.matches = {}
         super().deactivate()
 
 
@@ -185,28 +158,21 @@ class LayerChoiceSelectPlugin:
         action = QAction(icon, text, parent)
         action.triggered.connect(callback)
         action.setCheckable(True)
-
         if status_tip:
             action.setStatusTip(status_tip)
-
         self.toolbar.addAction(action)
         self.iface.addPluginToMenu("&Layer Choice Select", action)
         self.actions.append(action)
         return action
 
     def initGui(self):
-        icon_path = (
-            os.path.join(self.plugin_dir, "icon.svg")
-            if os.path.exists(os.path.join(self.plugin_dir, "icon.svg"))
-            else None
-        )
+        icon_file = os.path.join(self.plugin_dir, "icon.svg")
         self.tool_action = self.add_action(
-            icon_path,
+            icon_file if os.path.exists(icon_file) else None,
             text="Selection with layer choice",
             callback=self.activate_select_tool,
             parent=self.iface.mainWindow(),
         )
-
         self.select_tool = LayerChoiceSelectTool(self.iface.mapCanvas())
         self.iface.mapCanvas().mapToolSet.connect(self.map_tool_changed)
 
@@ -220,12 +186,12 @@ class LayerChoiceSelectPlugin:
             self.iface.mapCanvas().mapToolSet.disconnect(self.map_tool_changed)
 
     def activate_select_tool(self):
-        if self.select_tool:
-            if self.iface.mapCanvas().mapTool() == self.select_tool:
-                self.iface.mapCanvas().unsetMapTool(self.select_tool)
-                self.tool_action.setChecked(False)
-            else:
-                self.iface.mapCanvas().setMapTool(self.select_tool)
+        canvas = self.iface.mapCanvas()
+        if canvas.mapTool() == self.select_tool:
+            canvas.unsetMapTool(self.select_tool)
+            self.tool_action.setChecked(False)
+        else:
+            canvas.setMapTool(self.select_tool)
 
     def map_tool_changed(self, tool):
         if self.tool_action:
